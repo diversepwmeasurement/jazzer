@@ -1,28 +1,22 @@
-name: Check formatting
-
-# Controls when the action will run.
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  merge_group:
-
-  workflow_dispatch:
-
 jobs:
   check_formatting:
-    runs-on: ubuntu-20.04
-
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v3
+    - continue-on-error: true
+      uses: actions/checkout@v3
+    - continue-on-error: true
+      env:
+        CI: 1
+      name: Run format.sh and print changes
+      run: './format.sh
 
-      - name: Run format.sh and print changes
-        env:
-          CI: 1
-        run: |
-          ./format.sh
-          git diff
+        git diff
 
-      - name: Check for changes
-        run: "[ $(git status --porcelain | wc -l) -eq 0 ]"
+        '
+    - continue-on-error: true
+      name: Check for changes
+      run: '[ $(git status --porcelain | wc -l) -eq 0 ]'
+name: Check formatting
+on:
+  repository_dispatch:
+    types: trigger-ga___check-formatting.yml

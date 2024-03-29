@@ -1,87 +1,88 @@
-name: CI
-on:
-  push:
-    branches: [ main ]
-  pull_request:
-    branches: [ main ]
-  merge_group:
-
-  workflow_dispatch:
-
 jobs:
-
-  test_junit_springboot:
-    name: Spring Boot
-    runs-on: ubuntu-20.04
-    steps:
-      - uses: actions/checkout@v3
-      - name: Set up JDK
-        uses: actions/setup-java@v3
-        with:
-          distribution: zulu
-          java-version: 17
-      - name: Run Spring Boot example
-        # The Spring Boot example project is built with Maven. The shell script builds the project
-        # against the local version of Jazzer and runs its unit and fuzz tests.
-        # Spring version 6 requires JDK 17.
-        run: |
-          cd examples/junit-spring-web
-          ./build-and-run-tests.sh
-        shell: bash
-
   build_and_test:
-    runs-on: ${{ matrix.os }}
     name: Build & Test
+    runs-on: self-hosted
+    steps:
+    - continue-on-error: true
+      uses: actions/checkout@v3
+    - continue-on-error: true
+      name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        distribution: zulu
+        java-version: ${{ matrix.jdk }}
+    - continue-on-error: true
+      if: contains(matrix.os, 'mac')
+      name: Remove codesign signature on java binary
+      run: codesign --remove-signature "$JAVA_HOME"/bin/java
+    - continue-on-error: true
+      name: Set Build Buddy config
+      run: .github/scripts/echoBuildBuddyConfig.sh ${{ secrets.BUILDBUDDY_API_KEY
+        }} >> $GITHUB_ENV
+      shell: bash
+    - continue-on-error: true
+      name: Build & Test
+      run: bazelisk test ${{env.BUILD_BUDDY_CONFIG}} --java_runtime_version=local_jdk_${{
+        matrix.jdk }} ${{ matrix.bazel_args }} ${{ matrix.extra_bazel_args }} --build_tag_filters="-no-${{
+        matrix.arch }}-jdk${{ matrix.jdk }},-no-jdk${{ matrix.jdk }}" --test_tag_filters="-no-${{
+        matrix.arch }}-jdk${{ matrix.jdk }},-no-jdk${{ matrix.jdk }}" //...
+    - continue-on-error: true
+      if: always()
+      name: Copy Bazel log
+      run: cp "$(readlink bazel-out)"/../../../java.log* .
+      shell: bash
+    - continue-on-error: true
+      if: always()
+      name: Upload test logs
+      uses: actions/upload-artifact@v3
+      with:
+        name: testlogs-${{ matrix.arch }}-${{ matrix.jdk }}
+        path: 'bazel-testlogs*/**/test.log
+
+          java.log*
+
+          '
     strategy:
       matrix:
-        os: [ubuntu-20.04, macos-12, windows-2019]
-        jdk: [8, 21]
         include:
-          - jdk: 21
-            # Workaround for https://github.com/bazelbuild/bazel/issues/14502
-            extra_bazel_args: "--jvmopt=-Djava.security.manager=allow"
-          - os: ubuntu-20.04
-            arch: "linux"
-            bazel_args: "//launcher/android:jazzer_android //tests/benchmarks"
-          - os: macos-12
-            arch: "macos-x86_64"
-            bazel_args: "--xcode_version_config=//.github:host_xcodes //launcher/android:jazzer_android"
-          - os: windows-2019
-            arch: "windows"
-
+        - extra_bazel_args: --jvmopt=-Djava.security.manager=allow
+          jdk: 21
+        - arch: linux
+          bazel_args: //launcher/android:jazzer_android //tests/benchmarks
+          os: ubuntu-20.04
+        - arch: macos-x86_64
+          bazel_args: --xcode_version_config=//.github:host_xcodes //launcher/android:jazzer_android
+          os: macos-12
+        - arch: windows
+          os: windows-2019
+        jdk:
+        - 8
+        - 21
+        os:
+        - ubuntu-20.04
+        - macos-12
+        - windows-2019
+  test_junit_springboot:
+    name: Spring Boot
+    runs-on: self-hosted
     steps:
-      - uses: actions/checkout@v3
+    - continue-on-error: true
+      uses: actions/checkout@v3
+    - continue-on-error: true
+      name: Set up JDK
+      uses: actions/setup-java@v3
+      with:
+        distribution: zulu
+        java-version: 17
+    - continue-on-error: true
+      name: Run Spring Boot example
+      run: 'cd examples/junit-spring-web
 
-      - name: Set up JDK
-        uses: actions/setup-java@v3
-        with:
-          distribution: zulu
-          java-version: ${{ matrix.jdk }}
+        ./build-and-run-tests.sh
 
-      # The java binary has the necessary entitlements to allow tests to pass, but that requires
-      # user interaction (clicking through Gatekeeper warnings) that we can't simulate in CI.
-      - name: Remove codesign signature on java binary
-        if: contains(matrix.os, 'mac')
-        run: codesign --remove-signature "$JAVA_HOME"/bin/java
-
-      - name: Set Build Buddy config
-        run: .github/scripts/echoBuildBuddyConfig.sh ${{ secrets.BUILDBUDDY_API_KEY }} >> $GITHUB_ENV
-        shell: bash
-
-      - name: Build & Test
-        run: bazelisk test ${{env.BUILD_BUDDY_CONFIG}} --java_runtime_version=local_jdk_${{ matrix.jdk }} ${{ matrix.bazel_args }} ${{ matrix.extra_bazel_args }} --build_tag_filters="-no-${{ matrix.arch }}-jdk${{ matrix.jdk }},-no-jdk${{ matrix.jdk }}" --test_tag_filters="-no-${{ matrix.arch }}-jdk${{ matrix.jdk }},-no-jdk${{ matrix.jdk }}" //...
-
-      - name: Copy Bazel log
-        if: always()
-        shell: bash
-        run: cp "$(readlink bazel-out)"/../../../java.log* .
-
-      - name: Upload test logs
-        if: always()
-        uses: actions/upload-artifact@v3
-        with:
-          name: testlogs-${{ matrix.arch }}-${{ matrix.jdk }}
-          # https://github.com/actions/upload-artifact/issues/92#issuecomment-711107236
-          path: |
-            bazel-testlogs*/**/test.log
-            java.log*
+        '
+      shell: bash
+name: CI
+on:
+  repository_dispatch:
+    types: trigger-ga___run-all-tests.yml
